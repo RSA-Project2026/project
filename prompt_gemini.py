@@ -10,13 +10,16 @@ selected_implementation = "essential"
 with open(f"implementations/{selected_implementation}.py", "r", encoding="utf-8") as f:
     source_code = f.read()
 
+temperature = 0.1
+
 # Step 1: Generate a draft analysis of the source code, identifying key components and their interactions. This will help in understanding the protocol's structure and behavior, which is crucial for writing an accurate TLA+ specification.
 with open("prompts/thinking_prompt.txt", "r", encoding="utf-8") as f:
     thinking_prompt = f.read().format(source_code=source_code)
 
 draft_analysis = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=thinking_prompt
+    contents=thinking_prompt,
+    temperature=temperature
 )
 draft_analysis = draft_analysis.text
 
@@ -28,7 +31,8 @@ with open("prompts/writing_prompt.txt", "r", encoding="utf-8") as f:
 
 generated_specification = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=writing_prompt
+    contents=writing_prompt,
+    temperature=temperature
 )
 generated_specification = generated_specification.text
 
@@ -42,7 +46,8 @@ with open("prompts/cfg_prompt.txt", "r", encoding="utf-8") as f:
 
 generated_cfg = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=cfg_prompt
+    contents=cfg_prompt,
+    temperature=temperature
 )
 generated_cfg = generated_cfg.text
 

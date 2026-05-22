@@ -74,3 +74,5 @@ Based on the analysis draft above, translate the provided source code into a com
 4. **Control Flow**: Preserve the control flow and logic patterns described in the draft analysis
 
 Generate a complete, syntactically correct TLA+ specification that faithfully represents the source code according to the draft analysis strategy.
+
+**Your response must be the complete .tla file content that can be directly written to a file and used as a specification. Start your response immediately with the module declaration.** 
