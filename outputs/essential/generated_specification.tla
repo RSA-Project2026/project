@@ -1,250 +1,205 @@
 ---- MODULE Paxos ----
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
-CONSTANTS 
-    Proposers,    \* Set of all Proposer UIDs
-    Acceptors,    \* Set of all Acceptor UIDs
-    Learners,     \* Set of all Learner UIDs
-    Values,       \* Set of all proposed consensus values
-    QuorumSize    \* Size of the quorum required for consensus (e.g. 2 for 3 nodes)
+CONSTANTS Proposers, Acceptors, Learners, Values, QuorumSize, Nil
 
 VARIABLES 
-    proposer_state,
-    acceptor_state,
-    learner_state,
-    network
+    proposed_value,
+    proposal_id,
+    last_accepted_id,
+    next_proposal_number,
+    promises_rcvd,
+    promised_id,
+    accepted_id,
+    accepted_value,
+    accepted_map,
+    final_value,
+    final_proposal_id,
+    messages
 
-vars == <<proposer_state, acceptor_state, learner_state, network>>
+vars == <<proposed_value, proposal_id, last_accepted_id, next_proposal_number, 
+          promises_rcvd, promised_id, accepted_id, accepted_value, 
+          accepted_map, final_value, final_proposal_id, messages>>
 
-\* Helper values representing None
-NoneValue == "none_value"
-NoneID == [number |-> -1, uid |-> "none_uid"]
+-----------------------------------------------------------------------------
 
-\* Helper to lexicographically compare Proposal IDs: [number, uid]
-IDGreater(id1, id2) ==
-    IF id1 = NoneID THEN FALSE
-    ELSE IF id2 = NoneID THEN TRUE
-    ELSE id1.number > id2.number \/ (id1.number = id2.number /\ id1.uid > id2.uid)
+\* Helper operators for Proposal ID comparisons.
+\* Python tuples are compared lexicographically: (number, uid).
+\* Nil acts as None (lower than any valid proposal).
+Proposal_GT(p1, p2) ==
+    IF p1 = Nil THEN FALSE
+    ELSE IF p2 = Nil THEN TRUE
+    ELSE (p1.number > p2.number) \/ (p1.number = p2.number /\ p1.uid > p2.uid)
 
-IDGreaterOrEqual(id1, id2) ==
-    id1 = id2 \/ IDGreater(id1, id2)
+Proposal_GE(p1, p2) ==
+    p1 = p2 \/ Proposal_GT(p1, p2)
 
 -----------------------------------------------------------------------------
 
 Init == 
-    /\ proposer_state = [p \in Proposers |-> [
-            proposed_value |-> NoneValue,
-            proposal_id |-> NoneID,
-            last_accepted_id |-> NoneID,
-            next_proposal_number |-> 1,
-            promises_rcvd |-> {}
-       ]]
-    /\ acceptor_state = [a \in Acceptors |-> [
-            promised_id |-> NoneID,
-            accepted_id |-> NoneID,
-            accepted_value |-> NoneValue
-       ]]
-    /\ learner_state = [l \in Learners |-> [
-            final_value |-> NoneValue,
-            final_proposal_id |-> NoneID,
-            proposals |-> [pid \in {} |-> [accept_count |-> 0, retain_count |-> 0, value |-> NoneValue]],
-            acceptors |-> [a \in Acceptors |-> NoneID]
-       ]]
-    /\ network = {}
+    /\ proposed_value = [p \in Proposers |-> Nil]
+    /\ proposal_id = [p \in Proposers |-> Nil]
+    /\ last_accepted_id = [p \in Proposers |-> Nil]
+    /\ next_proposal_number = [p \in Proposers |-> 1]
+    /\ promises_rcvd = [p \in Proposers |-> {}]
+    /\ promised_id = [a \in Acceptors |-> Nil]
+    /\ accepted_id = [a \in Acceptors |-> Nil]
+    /\ accepted_value = [a \in Acceptors |-> Nil]
+    /\ accepted_map = [l \in Learners |-> {}]
+    /\ final_value = [l \in Learners |-> Nil]
+    /\ final_proposal_id = [l \in Learners |-> Nil]
+    /\ messages = {}
 
 -----------------------------------------------------------------------------
-\* Core Proposer Actions
 
-\* Client interface equivalent to self.set_proposal(value)
-SetProposal(p, val) ==
-    /\ proposer_state[p].proposed_value = NoneValue
-    /\ proposer_state' = [proposer_state EXCEPT ![p].proposed_value = val]
-    /\ UNCHANGED <<acceptor_state, learner_state, network>>
+\* Proposer.set_proposal
+SetProposal(p, v) ==
+    /\ proposed_value[p] = Nil
+    /\ proposed_value' = [proposed_value EXCEPT ![p] = v]
+    /\ UNCHANGED <<proposal_id, last_accepted_id, next_proposal_number, promises_rcvd,
+                  promised_id, accepted_id, accepted_value,
+                  accepted_map, final_value, final_proposal_id, messages>>
 
-\* Proposer initiates a new round: self.prepare()
+\* Proposer.prepare
 Prepare(p) ==
-    LET new_id == [number |-> proposer_state[p].next_proposal_number, uid |-> p]
-        new_msg == [type        |-> "Prepare", 
-                    proposal_id |-> new_id, 
-                    from_uid    |-> p]
+    LET new_id == [number |-> next_proposal_number[p], uid |-> p]
     IN
-    /\ proposer_state' = [proposer_state EXCEPT 
-                            ![p].promises_rcvd = {},
-                            ![p].proposal_id = new_id,
-                            ![p].next_proposal_number = proposer_state[p].next_proposal_number + 1]
-    /\ network' = network \cup {new_msg}
-    /\ UNCHANGED <<acceptor_state, learner_state>>
+    /\ promises_rcvd' = [promises_rcvd EXCEPT ![p] = {}]
+    /\ proposal_id' = [proposal_id EXCEPT ![p] = new_id]
+    /\ next_proposal_number' = [next_proposal_number EXCEPT ![p] = next_proposal_number[p] + 1]
+    /\ messages' = messages \cup {[type |-> "prepare", proposal_id |-> new_id]}
+    /\ UNCHANGED <<proposed_value, last_accepted_id, promised_id, accepted_id, accepted_value, 
+                  accepted_map, final_value, final_proposal_id>>
 
-\* Proposer receives a promise: self.recv_promise(...)
-ReceivePromise(p) ==
-    \E msg \in network :
-        /\ msg.type = "Promise"
-        /\ msg.to_uid = p
-        \* Ignore if duplicate or if proposal ID doesn't match current round
-        /\ msg.proposal_id = proposer_state[p].proposal_id
-        /\ msg.from_uid \notin proposer_state[p].promises_rcvd
-        /\ LET 
-            new_promises == proposer_state[p].promises_rcvd \cup {msg.from_uid}
-            
-            \* Track the highest-numbered accepted value returned by any Acceptor
-            updates_value == IDGreater(msg.prev_accepted_id, proposer_state[p].last_accepted_id)
-            new_last_accepted_id == IF updates_value THEN msg.prev_accepted_id ELSE proposer_state[p].last_accepted_id
-            new_proposed_value == IF updates_value /\ msg.prev_accepted_value /= NoneValue
-                                  THEN msg.prev_accepted_value
-                                  ELSE proposer_state[p].proposed_value
-            
-            \* Broadcast "Accept" request if quorum is achieved
-            reached_quorum == (Cardinality(new_promises) = QuorumSize)
-            accept_msg == [type        |-> "Accept", 
-                           proposal_id |-> proposer_state[p].proposal_id, 
-                           value       |-> new_proposed_value,
-                           from_uid    |-> p]
-            new_network == IF reached_quorum /\ new_proposed_value /= NoneValue
-                           THEN network \cup {accept_msg}
-                           ELSE network
-           IN
-           /\ proposer_state' = [proposer_state EXCEPT 
-                                    ![p].promises_rcvd = new_promises,
-                                    ![p].last_accepted_id = new_last_accepted_id,
-                                    ![p].proposed_value = new_proposed_value]
-           /\ network' = new_network
-           /\ UNCHANGED <<acceptor_state, learner_state>>
+\* Proposer.recv_promise
+RecvPromise(p, msg) ==
+    /\ msg \in messages
+    /\ msg.type = "promise"
+    /\ msg.to = p
+    /\ msg.proposal_id = proposal_id[p]
+    /\ msg.from \notin promises_rcvd[p]
+    /\ LET 
+           new_promises == promises_rcvd[p] \cup {msg.from}
+           updated_last_accepted_id == 
+               IF Proposal_GT(msg.prev_accepted_id, last_accepted_id[p]) 
+               THEN msg.prev_accepted_id 
+               ELSE last_accepted_id[p]
+           updated_proposed_value == 
+               IF Proposal_GT(msg.prev_accepted_id, last_accepted_id[p]) /\ msg.prev_accepted_value /= Nil 
+               THEN msg.prev_accepted_value 
+               ELSE proposed_value[p]
+           \* Broadcast Accept request if quorum achieved
+           send_accept_msg == 
+               IF Cardinality(new_promises) = QuorumSize /\ updated_proposed_value /= Nil
+               THEN {[type |-> "accept", proposal_id |-> proposal_id[p], value |-> updated_proposed_value]}
+               ELSE {}
+       IN
+           /\ promises_rcvd' = [promises_rcvd EXCEPT ![p] = new_promises]
+           /\ last_accepted_id' = [last_accepted_id EXCEPT ![p] = updated_last_accepted_id]
+           /\ proposed_value' = [proposed_value EXCEPT ![p] = updated_proposed_value]
+           /\ messages' = messages \cup send_accept_msg
+           /\ UNCHANGED <<proposal_id, next_proposal_number, promised_id, accepted_id, 
+                         accepted_value, accepted_map, final_value, final_proposal_id>>
 
------------------------------------------------------------------------------
-\* Core Acceptor Actions
+\* Acceptor.recv_prepare
+AcceptorRecvPrepare(a, msg) ==
+    /\ msg \in messages
+    /\ msg.type = "prepare"
+    /\ Proposal_GE(msg.proposal_id, promised_id[a])
+    /\ promised_id' = [promised_id EXCEPT ![a] = msg.proposal_id]
+    /\ messages' = messages \cup {[
+                      type |-> "promise",
+                      to |-> msg.proposal_id.uid,
+                      from |-> a,
+                      proposal_id |-> msg.proposal_id,
+                      prev_accepted_id |-> accepted_id[a],
+                      prev_accepted_value |-> accepted_value[a]
+                   ]}
+    /\ UNCHANGED <<proposed_value, proposal_id, last_accepted_id, next_proposal_number, 
+                  promises_rcvd, accepted_id, accepted_value, accepted_map, 
+                  final_value, final_proposal_id>>
 
-\* Acceptor processes prepare request: self.recv_prepare(...)
-ReceivePrepare(a) ==
-    \E msg \in network :
-        /\ msg.type = "Prepare"
-        /\ IDGreaterOrEqual(msg.proposal_id, acceptor_state[a].promised_id)
-        /\ LET 
-            new_promised_id == msg.proposal_id
-            promise_msg == [type                |-> "Promise",
-                            to_uid              |-> msg.from_uid,
-                            from_uid            |-> a,
-                            proposal_id         |-> msg.proposal_id,
-                            prev_accepted_id    |-> acceptor_state[a].accepted_id,
-                            prev_accepted_value |-> acceptor_state[a].accepted_value]
-           IN
-           /\ acceptor_state' = [acceptor_state EXCEPT ![a].promised_id = new_promised_id]
-           /\ network' = network \cup {promise_msg}
-           /\ UNCHANGED <<proposer_state, learner_state>>
+\* Acceptor.recv_accept_request
+AcceptorRecvAccept(a, msg) ==
+    /\ msg \in messages
+    /\ msg.type = "accept"
+    /\ Proposal_GE(msg.proposal_id, promised_id[a])
+    /\ promised_id' = [promised_id EXCEPT ![a] = msg.proposal_id]
+    /\ accepted_id' = [accepted_id EXCEPT ![a] = msg.proposal_id]
+    /\ accepted_value' = [accepted_value EXCEPT ![a] = msg.value]
+    /\ messages' = messages \cup {[
+                      type |-> "accepted",
+                      from |-> a,
+                      proposal_id |-> msg.proposal_id,
+                      value |-> msg.value
+                   ]}
+    /\ UNCHANGED <<proposed_value, proposal_id, last_accepted_id, next_proposal_number, 
+                  promises_rcvd, accepted_map, final_value, final_proposal_id>>
 
-\* Acceptor processes accept request: self.recv_accept_request(...)
-ReceiveAcceptRequest(a) ==
-    \E msg \in network :
-        /\ msg.type = "Accept"
-        /\ IDGreaterOrEqual(msg.proposal_id, acceptor_state[a].promised_id)
-        /\ LET 
-            accepted_msg == [type           |-> "Accepted",
-                             proposal_id    |-> msg.proposal_id,
-                             accepted_value |-> msg.value,
-                             from_uid       |-> a]
-           IN
-           /\ acceptor_state' = [acceptor_state EXCEPT 
-                                    ![a].promised_id = msg.proposal_id,
-                                    ![a].accepted_id = msg.proposal_id,
-                                    ![a].accepted_value = msg.value]
-           /\ network' = network \cup {accepted_msg}
-           /\ UNCHANGED <<proposer_state, learner_state>>
-
------------------------------------------------------------------------------
-\* Core Learner Action
-
-\* Learner processes an accepted message: self.recv_accepted(...)
-ReceiveAccepted(l) ==
-    \E msg \in network :
-        /\ msg.type = "Accepted"
-        /\ learner_state[l].final_value = NoneValue  \* Ignore if already resolved
-        /\ LET 
-            from_uid == msg.from_uid
-            proposal_id == msg.proposal_id
-            accepted_value == msg.accepted_value
-            last_pn == learner_state[l].acceptors[from_uid]
-           IN
-           \* Process only if strictly newer than last proposal accepted by this acceptor
-           /\ IDGreater(proposal_id, last_pn)
+\* Learner.recv_accepted
+LearnerRecvAccepted(l, msg) ==
+    /\ msg \in messages
+    /\ msg.type = "accepted"
+    /\ final_value[l] = Nil
+    /\ LET 
+           last_p == IF \E r \in accepted_map[l] : r.acceptor = msg.from
+                     THEN (CHOOSE r \in accepted_map[l] : r.acceptor = msg.from).proposal
+                     ELSE Nil
+       IN
+           /\ Proposal_GT(msg.proposal_id, last_p)
            /\ LET 
-                \* Update acceptor's tracking map
-                new_acceptors == [learner_state[l].acceptors EXCEPT ![from_uid] = proposal_id]
-                
-                \* Clean up / Decrement old proposal entry if one existed
-                proposals_after_old == 
-                    IF last_pn /= NoneID /\ last_pn \in DOMAIN learner_state[l].proposals
-                    THEN
-                        LET old_entry == learner_state[l].proposals[last_pn]
-                            new_retain == old_entry.retain_count - 1
-                        IN
-                        IF new_retain = 0
-                        THEN [pid \in (DOMAIN learner_state[l].proposals \ {last_pn}) |-> learner_state[l].proposals[pid]]
-                        ELSE [learner_state[l].proposals EXCEPT ![last_pn].retain_count = new_retain]
-                    ELSE learner_state[l].proposals
-                
-                \* Initialize proposal tracking record if not exists
-                proposals_with_new ==
-                    IF proposal_id \in DOMAIN proposals_after_old
-                    THEN proposals_after_old
-                    ELSE [pid \in (DOMAIN proposals_after_old \cup {proposal_id}) |-> 
-                            IF pid = proposal_id 
-                            THEN [accept_count |-> 0, retain_count |-> 0, value |-> accepted_value]
-                            ELSE proposals_after_old[pid]]
-                
-                \* Safety assert check: value mismatch check
-                _assert_ok == accepted_value = proposals_with_new[proposal_id].value
-                
-                \* Increment current counts
-                current_entry == proposals_with_new[proposal_id]
-                new_accept_count == current_entry.accept_count + 1
-                new_retain_count == current_entry.retain_count + 1
-                updated_entry == [accept_count |-> new_accept_count, 
-                                  retain_count |-> new_retain_count, 
-                                  value        |-> accepted_value]
-                
-                final_proposals == [proposals_with_new EXCEPT ![proposal_id] = updated_entry]
-                
-                \* Check for quorum resolution
-                quorum_reached == (new_accept_count = QuorumSize)
-                
-                \* If consensus is resolved, clean up all local trackers as in Python code
-                next_learner_record ==
-                    IF quorum_reached
-                    THEN [
-                        final_value       |-> accepted_value,
-                        final_proposal_id |-> proposal_id,
-                        proposals         |-> [pid \in {} |-> [accept_count |-> 0, retain_count |-> 0, value |-> NoneValue]],
-                        acceptors         |-> [a \in Acceptors |-> NoneID]
-                    ]
-                    ELSE [
-                        final_value       |-> NoneValue,
-                        final_proposal_id |-> NoneID,
-                        proposals         |-> final_proposals,
-                        acceptors         |-> new_acceptors
-                    ]
+                  new_map == (accepted_map[l] \ { r \in accepted_map[l] : r.acceptor = msg.from }) \cup
+                             {[acceptor |-> msg.from, proposal |-> msg.proposal_id, value |-> msg.value]}
+                  acceptors_for_proposal == { r.acceptor : r \in new_map \land r.proposal = msg.proposal_id }
               IN
-              /\ _assert_ok
-              /\ learner_state' = [learner_state EXCEPT ![l] = next_learner_record]
-              /\ UNCHANGED <<proposer_state, acceptor_state, network>>
+                  IF Cardinality(acceptors_for_proposal) >= QuorumSize
+                  THEN
+                      /\ final_value' = [final_value EXCEPT ![l] = msg.value]
+                      /\ final_proposal_id' = [final_proposal_id EXCEPT ![l] = msg.proposal_id]
+                      /\ accepted_map' = [accepted_map EXCEPT ![l] = {}]
+                  ELSE
+                      /\ final_value' = final_value
+                      /\ final_proposal_id' = final_proposal_id
+                      /\ accepted_map' = [accepted_map EXCEPT ![l] = new_map]
+           /\ UNCHANGED <<proposed_value, proposal_id, last_accepted_id, next_proposal_number, 
+                         promises_rcvd, promised_id, accepted_id, accepted_value, messages>>
 
 -----------------------------------------------------------------------------
 
-Next == 
+Next ==
     \/ \E p \in Proposers, v \in Values : SetProposal(p, v)
     \/ \E p \in Proposers : Prepare(p)
-    \/ \E p \in Proposers : ReceivePromise(p)
-    \/ \E a \in Acceptors : ReceivePrepare(a)
-    \/ \E a \in Acceptors : ReceiveAcceptRequest(a)
-    \/ \E l \in Learners  : ReceiveAccepted(l)
+    \/ \E p \in Proposers, msg \in messages : RecvPromise(p, msg)
+    \/ \E a \in Acceptors, msg \in messages : AcceptorRecvPrepare(a, msg)
+    \/ \E a \in Acceptors, msg \in messages : AcceptorRecvAccept(a, msg)
+    \/ \E l \in Learners, msg \in messages : LearnerRecvAccepted(l, msg)
 
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
-\* Correctness Properties
 
-\* Agreement: No two learners decide on different final values
+\* Safety Properties
+
+\* Learner.complete property helper
+LearnerComplete(l) == final_proposal_id[l] /= Nil
+
+TypeOK ==
+    /\ proposed_value \in [Proposers -> Values \cup {Nil}]
+    /\ proposal_id \in [Proposers -> [number: Nat, uid: Proposers] \cup {Nil}]
+    /\ last_accepted_id \in [Proposers -> [number: Nat, uid: Proposers] \cup {Nil}]
+    /\ next_proposal_number \in [Proposers -> Nat]
+    /\ promises_rcvd \in [Proposers -> SUBSET Acceptors]
+    /\ promised_id \in [Acceptors -> [number: Nat, uid: Proposers] \cup {Nil}]
+    /\ accepted_id \in [Acceptors -> [number: Nat, uid: Proposers] \cup {Nil}]
+    /\ accepted_value \in [Acceptors -> Values \cup {Nil}]
+    /\ accepted_map \in [Learners -> SUBSET [acceptor: Acceptors, proposal: [number: Nat, uid: Proposers], value: Values]]
+    /\ final_value \in [Learners -> Values \cup {Nil}]
+    /\ final_proposal_id \in [Learners -> [number: Nat, uid: Proposers] \cup {Nil}]
+
+\* Consensus Agreement Property: No two Learners decide on different values.
 Agreement ==
     \A l1, l2 \in Learners :
-        (learner_state[l1].final_value /= NoneValue /\ learner_state[l2].final_value /= NoneValue)
-        => (learner_state[l1].final_value = learner_state[l2].final_value)
+        (final_value[l1] /= Nil /\ final_value[l2] /= Nil) 
+        => (final_value[l1] = final_value[l2])
 
 ====

@@ -6,11 +6,9 @@ from dotenv import load_dotenv
 load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-selected_implementation = "essential"
+selected_implementation = "functional"
 with open(f"implementations/{selected_implementation}.py", "r", encoding="utf-8") as f:
     source_code = f.read()
-
-temperature = 0.1
 
 # Step 1: Generate a draft analysis of the source code, identifying key components and their interactions. This will help in understanding the protocol's structure and behavior, which is crucial for writing an accurate TLA+ specification.
 with open("prompts/thinking_prompt.txt", "r", encoding="utf-8") as f:
@@ -18,8 +16,7 @@ with open("prompts/thinking_prompt.txt", "r", encoding="utf-8") as f:
 
 draft_analysis = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=thinking_prompt,
-    temperature=temperature
+    contents=thinking_prompt
 )
 draft_analysis = draft_analysis.text
 
@@ -31,8 +28,7 @@ with open("prompts/writing_prompt.txt", "r", encoding="utf-8") as f:
 
 generated_specification = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=writing_prompt,
-    temperature=temperature
+    contents=writing_prompt
 )
 generated_specification = generated_specification.text
 
@@ -46,8 +42,7 @@ with open("prompts/cfg_prompt.txt", "r", encoding="utf-8") as f:
 
 generated_cfg = client.models.generate_content(
     model="gemini-3.5-flash",
-    contents=cfg_prompt,
-    temperature=temperature
+    contents=cfg_prompt
 )
 generated_cfg = generated_cfg.text
 
