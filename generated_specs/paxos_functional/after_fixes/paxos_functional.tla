@@ -1,12 +1,11 @@
----- MODULE HeartbeatPaxos ----
+---- MODULE paxos_functional ----
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 CONSTANTS 
-    Nodes,          \* Set of all nodes in the system
+    Nodes,          \* Set of all nodes in the system (expected to be integers for tie-breaking)
     Values,         \* Set of consensus values that can be proposed
     InitialLeader   \* The initial leader node (can be None)
 
-\* Define None and NilProposal
 None == "None"
 
 NilProposal == [number |-> 0, uid |-> CHOOSE n \in Nodes : TRUE]
@@ -39,7 +38,6 @@ vars == <<msgs, proposal_id, next_proposal_number, promises_rcvd, leader, promis
           final_proposal_id, final_acceptors, leader_uid, _nacks, proposed_value, 
           leader_proposal_id, _acquiring, active_votes, last_accepted_id, leader_alive>>
 
-\* Lexicographical ordering helper functions for proposal IDs
 GreaterThan(p1, p2) ==
     \/ p1.number > p2.number
     \/ (p1.number = p2.number /\ p1.uid > p2.uid)
@@ -56,13 +54,11 @@ LessOrEqual(p1, p2) ==
     \/ LessThan(p1, p2)
     \/ p1 = p2
 
-\* Helper for proposer updating next proposal number
 ObserveProposal(node, from_uid, pid) ==
     IF from_uid /= node /\ GreaterOrEqual(pid, [number |-> next_proposal_number[node], uid |-> node])
     THEN pid.number + 1
     ELSE next_proposal_number[node]
 
-\* Definition of Quorum size
 QuorumSize == (Cardinality(Nodes) \div 2) + 1
 
 Init ==
@@ -88,7 +84,6 @@ Init ==
     /\ last_accepted_id = [n \in Nodes |-> NilProposal]
     /\ leader_alive = [n \in Nodes |-> TRUE]
 
-\* Proposer setting initial proposed value
 SetProposal(node, val) ==
     /\ proposed_value[node] = None
     /\ proposed_value' = [proposed_value EXCEPT ![node] = val]
@@ -100,7 +95,6 @@ SetProposal(node, val) ==
                   final_proposal_id, final_acceptors, leader_uid, _nacks, leader_proposal_id, 
                   _acquiring, active_votes, last_accepted_id, leader_alive>>
 
-\* HeartbeatNode periodically polling leader liveness
 PollLiveness(node) ==
     /\ leader_alive[node] = FALSE
     /\ _acquiring' = [_acquiring EXCEPT ![node] = TRUE]
@@ -114,7 +108,6 @@ PollLiveness(node) ==
                   final_proposal_id, final_acceptors, leader_uid, proposed_value, leader_proposal_id, 
                   active_votes, last_accepted_id, leader_alive>>
 
-\* Non-deterministic timeout action simulating leader lease expiration
 Timeout(node) ==
     /\ leader_alive[node] = TRUE
     /\ leader_alive' = [leader_alive EXCEPT ![node] = FALSE]
@@ -123,7 +116,6 @@ Timeout(node) ==
                   final_proposal_id, final_acceptors, leader_uid, _nacks, proposed_value, 
                   leader_proposal_id, _acquiring, active_votes, last_accepted_id>>
 
-\* Flush staged state changes to network after persistence
 Persisted(node) ==
     /\ \/ pending_promise[node] /= None
        \/ pending_accepted[node] /= None
@@ -145,7 +137,6 @@ Persisted(node) ==
                   leader_uid, _nacks, proposed_value, leader_proposal_id, _acquiring, 
                   active_votes, last_accepted_id, leader_alive>>
 
-\* Acceptor evaluating prepare requests
 RecvPrepare(node, msg) ==
     /\ msg.type = "Prepare"
     /\ msg.from \in Nodes
@@ -164,7 +155,6 @@ RecvPrepare(node, msg) ==
            /\ UNCHANGED msgs
          ELSE UNCHANGED <<promised_id, pending_promise, msgs>>
        ELSE 
-         \* msg.proposal_id < promised_id
          /\ msgs' = msgs \cup {[type |-> "PrepareNack", to |-> msg.from, from |-> node, 
                                 proposal_id |-> msg.proposal_id, promised_id |-> promised_id[node]]}
          /\ UNCHANGED <<promised_id, pending_promise>>
@@ -173,7 +163,6 @@ RecvPrepare(node, msg) ==
                   leader_uid, _nacks, proposed_value, leader_proposal_id, _acquiring, 
                   active_votes, last_accepted_id, leader_alive>>
 
-\* Proposer processing Promise messages (extends to HeartbeatNode)
 RecvPromise(node, msg) ==
     /\ msg.type = "Promise"
     /\ msg.to = node
@@ -212,7 +201,6 @@ RecvPromise(node, msg) ==
                   pending_accepted, final_value, final_proposal_id, final_acceptors, _nacks, 
                   active_votes, leader_alive>>
 
-\* Acceptor evaluating accept requests
 RecvAcceptRequest(node, msg) ==
     /\ msg.type = "Accept"
     /\ msg.from \in Nodes
@@ -231,7 +219,6 @@ RecvAcceptRequest(node, msg) ==
            /\ UNCHANGED msgs
          ELSE UNCHANGED <<promised_id, accepted_id, accepted_value, pending_accepted, msgs>>
        ELSE
-         \* msg.proposal_id < promised_id
          /\ msgs' = msgs \cup {[type |-> "AcceptNack", to |-> msg.from, from |-> node, 
                                 proposal_id |-> msg.proposal_id, promised_id |-> promised_id[node]]}
          /\ UNCHANGED <<promised_id, accepted_id, accepted_value, pending_accepted>>
@@ -240,7 +227,6 @@ RecvAcceptRequest(node, msg) ==
                   proposed_value, leader_proposal_id, _acquiring, active_votes, 
                   last_accepted_id, leader_alive>>
 
-\* Learner processing accepted messages to reach consensus
 RecvAccepted(node, msg) ==
     /\ msg.type = "Accepted"
     /\ msg.from \in Nodes
@@ -286,7 +272,6 @@ RecvAccepted(node, msg) ==
                   _nacks, proposed_value, leader_proposal_id, _acquiring, msgs, last_accepted_id, 
                   leader_alive>>
 
-\* Proposer processing PrepareNacks (with HeartbeatNode instant retry logic)
 RecvPrepareNack(node, msg) ==
     /\ msg.type = "PrepareNack"
     /\ msg.to = node
@@ -307,7 +292,6 @@ RecvPrepareNack(node, msg) ==
                   final_value, final_proposal_id, final_acceptors, leader_uid, proposed_value, 
                   leader_proposal_id, _acquiring, active_votes, last_accepted_id, leader_alive>>
 
-\* HeartbeatNode processing AcceptNack tracking and early stepdown
 RecvAcceptNack(node, msg) ==
     /\ msg.type = "AcceptNack"
     /\ msg.to = node
@@ -332,7 +316,6 @@ RecvAcceptNack(node, msg) ==
                   pending_accepted, final_value, final_proposal_id, final_acceptors, proposed_value, 
                   _acquiring, active_votes, msgs, last_accepted_id, leader_alive>>
 
-\* HeartbeatNode processing heartbeats for leadership lease and lease transitions
 RecvHeartbeat(node, msg) ==
     /\ msg.type = "Heartbeat"
     /\ msg.from \in Nodes
@@ -374,9 +357,7 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
-\* Consensus Agreement Property (Safety)
 Agreement ==
     \forall n1, n2 \in Nodes :
         (final_value[n1] /= None /\ final_value[n2] /= None) => (final_value[n1] = final_value[n2])
-
-====
+=============================================================================

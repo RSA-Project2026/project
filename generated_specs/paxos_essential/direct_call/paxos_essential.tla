@@ -1,4 +1,4 @@
----- MODULE Paxos ----
+---- MODULE paxos_essential ----
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 CONSTANTS Proposers, Acceptors, Learners, Values, QuorumSize, Nil

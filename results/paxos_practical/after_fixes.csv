@@ -1,0 +1,6 @@
+metric,action_decomposition,runtime_coverage,transition_validation,invariant_verification
+action_success_rate,100.0%,0.0%,-,-
+successful_actions,19,0,-,-
+total_actions,19,0,-,-
+syntax_errors,0,-,-,-
+semantic_errors,0,-,-,-

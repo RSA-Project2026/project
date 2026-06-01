@@ -1,4 +1,4 @@
----- MODULE PracticalPaxos ----
+---- MODULE paxos_practical ----
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 CONSTANTS Nodes, Values, QUORUM_SIZE
@@ -87,38 +87,38 @@ RecvPromise(n, msg) ==
   /\ msg \in messages
   /\ msg.type = "Promise"
   /\ msg.to = n
-  LET 
-    new_npn == UpdatedNPN(n, msg.from, msg.proposal_id)
-  IN
-    IF leader[n] \/ msg.proposal_id /= proposal_id[n] \/ msg.from \in promises_rcvd[n]
-    THEN 
-      /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
-      /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
-                     promised_id, accepted_id, accepted_value, pending_promise,
-                     pending_accepted, learner_proposals, learner_last_pn, final_value, messages>>
-    ELSE
-      LET
-        new_promises == promises_rcvd[n] \cup {msg.from}
-        updates_accepted == ID_GT(msg.prev_accepted_id, last_accepted_id[n])
-        new_last_accepted_id == IF updates_accepted THEN msg.prev_accepted_id ELSE last_accepted_id[n]
-        new_proposed_value == IF updates_accepted /\ msg.prev_accepted_value /= None 
-                              THEN msg.prev_accepted_value 
-                              ELSE proposed_value[n]
-        became_leader == (Cardinality(new_promises) = QuorumSize)
-        new_leader == became_leader
-        send_accept == became_leader /\ new_proposed_value /= None
-        new_msg == IF send_accept 
-                   THEN messages \cup {[type |-> "Accept", from |-> n, proposal_id |-> proposal_id[n], value |-> new_proposed_value]}
-                   ELSE messages
-      IN
+  /\ LET 
+      new_npn == UpdatedNPN(n, msg.from, msg.proposal_id)
+     IN
+      IF leader[n] \/ msg.proposal_id /= proposal_id[n] \/ msg.from \in promises_rcvd[n]
+      THEN 
         /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
-        /\ promises_rcvd' = [promises_rcvd EXCEPT ![n] = new_promises]
-        /\ last_accepted_id' = [last_accepted_id EXCEPT ![n] = new_last_accepted_id]
-        /\ proposed_value' = [proposed_value EXCEPT ![n] = new_proposed_value]
-        /\ leader' = [leader EXCEPT ![n] = new_leader]
-        /\ messages' = new_msg
-        /\ UNCHANGED <<proposal_id, promised_id, accepted_id, accepted_value,
-                       pending_promise, pending_accepted, learner_proposals, learner_last_pn, final_value>>
+        /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
+                       promised_id, accepted_id, accepted_value, pending_promise,
+                       pending_accepted, learner_proposals, learner_last_pn, final_value, messages>>
+      ELSE
+        LET
+          new_promises == promises_rcvd[n] \cup {msg.from}
+          updates_accepted == ID_GT(msg.prev_accepted_id, last_accepted_id[n])
+          new_last_accepted_id == IF updates_accepted THEN msg.prev_accepted_id ELSE last_accepted_id[n]
+          new_proposed_value == IF updates_accepted /\ msg.prev_accepted_value /= None 
+                                THEN msg.prev_accepted_value 
+                                ELSE proposed_value[n]
+          became_leader == (Cardinality(new_promises) = QuorumSize)
+          new_leader == became_leader
+          send_accept == became_leader /\ new_proposed_value /= None
+          new_msg == IF send_accept 
+                     THEN messages \cup {[type |-> "Accept", from |-> n, proposal_id |-> proposal_id[n], value |-> new_proposed_value]}
+                     ELSE messages
+        IN
+          /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
+          /\ promises_rcvd' = [promises_rcvd EXCEPT ![n] = new_promises]
+          /\ last_accepted_id' = [last_accepted_id EXCEPT ![n] = new_last_accepted_id]
+          /\ proposed_value' = [proposed_value EXCEPT ![n] = new_proposed_value]
+          /\ leader' = [leader EXCEPT ![n] = new_leader]
+          /\ messages' = new_msg
+          /\ UNCHANGED <<proposal_id, promised_id, accepted_id, accepted_value,
+                         pending_promise, pending_accepted, learner_proposals, learner_last_pn, final_value>>
 
 \* Proposer.recv_prepare_nack
 RecvPrepareNack(n, msg) ==
@@ -134,50 +134,50 @@ RecvPrepareNack(n, msg) ==
 RecvPrepare(n, msg) ==
   /\ msg \in messages
   /\ msg.type = "Prepare"
-  LET 
-    new_npn == UpdatedNPN(n, msg.from, msg.proposal_id)
-  IN
-    IF msg.proposal_id = promised_id[n]
-    THEN 
-      /\ messages' = messages \cup {[
-           type |-> "Promise", 
-           from |-> n, 
-           to |-> msg.from, 
-           proposal_id |-> msg.proposal_id, 
-           prev_accepted_id |-> accepted_id[n], 
-           prev_accepted_value |-> accepted_value[n]
-         ]}
-      /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
-      /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
-                     promised_id, accepted_id, accepted_value, pending_promise,
-                     pending_accepted, learner_proposals, learner_last_pn, final_value>>
-    ELSE IF ID_GT(msg.proposal_id, promised_id[n])
-    THEN
-      IF pending_promise[n] = None
-      THEN
-        /\ promised_id' = [promised_id EXCEPT ![n] = msg.proposal_id]
-        /\ pending_promise' = [pending_promise EXCEPT ![n] = msg.from]
-        /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
-        /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
-                       accepted_id, accepted_value, pending_accepted, learner_proposals, 
-                       learner_last_pn, final_value, messages>>
-      ELSE
+  /\ LET 
+      new_npn == UpdatedNPN(n, msg.from, msg.proposal_id)
+     IN
+      IF msg.proposal_id = promised_id[n]
+      THEN 
+        /\ messages' = messages \cup {[
+             type |-> "Promise", 
+             from |-> n, 
+             to |-> msg.from, 
+             proposal_id |-> msg.proposal_id, 
+             prev_accepted_id |-> accepted_id[n], 
+             prev_accepted_value |-> accepted_value[n]
+           ]}
         /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
         /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
                        promised_id, accepted_id, accepted_value, pending_promise,
-                       pending_accepted, learner_proposals, learner_last_pn, final_value, messages>>
-    ELSE
-      /\ messages' = messages \cup {[
-           type |-> "PrepareNack", 
-           from |-> n, 
-           to |-> msg.from, 
-           proposal_id |-> msg.proposal_id, 
-           promised_id |-> promised_id[n]
-         ]}
-      /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
-      /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
-                     promised_id, accepted_id, accepted_value, pending_promise,
-                     pending_accepted, learner_proposals, learner_last_pn, final_value>>
+                       pending_accepted, learner_proposals, learner_last_pn, final_value>>
+      ELSE IF ID_GT(msg.proposal_id, promised_id[n])
+      THEN
+        IF pending_promise[n] = None
+        THEN
+          /\ promised_id' = [promised_id EXCEPT ![n] = msg.proposal_id]
+          /\ pending_promise' = [pending_promise EXCEPT ![n] = msg.from]
+          /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
+          /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
+                         accepted_id, accepted_value, pending_accepted, learner_proposals, 
+                         learner_last_pn, final_value, messages>>
+        ELSE
+          /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
+          /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
+                         promised_id, accepted_id, accepted_value, pending_promise,
+                         pending_accepted, learner_proposals, learner_last_pn, final_value, messages>>
+      ELSE
+        /\ messages' = messages \cup {[
+             type |-> "PrepareNack", 
+             from |-> n, 
+             to |-> msg.from, 
+             proposal_id |-> msg.proposal_id, 
+             promised_id |-> promised_id[n]
+           ]}
+        /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
+        /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, leader, last_accepted_id,
+                       promised_id, accepted_id, accepted_value, pending_promise,
+                       pending_accepted, learner_proposals, learner_last_pn, final_value>>
 
 \* Acceptor.recv_accept_request
 RecvAcceptRequest(n, msg) ==
@@ -221,31 +221,31 @@ RecvAcceptRequest(n, msg) ==
 \* Acceptor.persisted
 Persisted(n) ==
   /\ (pending_promise[n] /= None \/ pending_accepted[n] /= None)
-  LET
-    promise_msg == IF pending_promise[n] /= None
-                   THEN {[
-                     type |-> "Promise",
-                     from |-> n,
-                     to |-> pending_promise[n],
-                     proposal_id |-> promised_id[n],
-                     prev_accepted_id |-> accepted_id[n],
-                     prev_accepted_value |-> accepted_value[n]
-                   ]}
-                   ELSE {}
-    accepted_msg == IF pending_accepted[n] /= None
-                    THEN {[
-                      type |-> "Accepted",
-                      from |-> n,
-                      proposal_id |-> accepted_id[n],
-                      value |-> accepted_value[n]
-                    ]}
-                    ELSE {}
-  IN
-    /\ messages' = messages \cup promise_msg \cup accepted_msg
-    /\ pending_promise' = [pending_promise EXCEPT ![n] = None]
-    /\ pending_accepted' = [pending_accepted EXCEPT ![n] = None]
-    /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, next_proposal_number, leader, last_accepted_id,
-                   promised_id, accepted_id, accepted_value, learner_proposals, learner_last_pn, final_value>>
+  /\ LET
+      promise_msg == IF pending_promise[n] /= None
+                     THEN {[
+                       type |-> "Promise",
+                       from |-> n,
+                       to |-> pending_promise[n],
+                       proposal_id |-> promised_id[n],
+                       prev_accepted_id |-> accepted_id[n],
+                       prev_accepted_value |-> accepted_value[n]
+                     ]}
+                     ELSE {}
+      accepted_msg == IF pending_accepted[n] /= None
+                      THEN {[
+                        type |-> "Accepted",
+                        from |-> n,
+                        proposal_id |-> accepted_id[n],
+                        value |-> accepted_value[n]
+                      ]}
+                      ELSE {}
+    IN
+      /\ messages' = messages \cup promise_msg \cup accepted_msg
+      /\ pending_promise' = [pending_promise EXCEPT ![n] = None]
+      /\ pending_accepted' = [pending_accepted EXCEPT ![n] = None]
+      /\ UNCHANGED <<proposal_id, proposed_value, promises_rcvd, next_proposal_number, leader, last_accepted_id,
+                     promised_id, accepted_id, accepted_value, learner_proposals, learner_last_pn, final_value>>
 
 \* Learner.recv_accepted
 RecvAccepted(n, msg) ==
