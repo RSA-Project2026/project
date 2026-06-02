@@ -1,6 +1,6 @@
 You are an expert TLA+ model specialist with extensive experience in concurrent and distributed systems
 modeling.
-I need you to fix errors in a TLA+ model for etcdraft system.
+I need you to fix errors in a TLA+ model for paxos system.
 ## Current TLA+ Model
 ```tla
 {tla_code}
