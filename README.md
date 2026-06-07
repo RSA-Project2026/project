@@ -1,5 +1,7 @@
 # Investigating LLM-based TLA+ Specification Generation for Paxos Implementations
 
+### Authors: Aanhar Al Haydar, Andrea Vezzuto
+
 This repository contains the experiments and helper scripts for generating TLA+ specifications from Paxos implementations, running a repair loop, and evaluating generated specifications using the SysMoBench evaluation suite.
 
 **Prerequisites**
