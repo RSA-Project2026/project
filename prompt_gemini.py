@@ -32,7 +32,7 @@ generated_specification = client.models.generate_content(
 )
 generated_specification = generated_specification.text
 
-with open(f"outputs/{selected_implementation}/generated_specification.tla", "w", encoding="utf-8") as f:
+with open(f"generated_specs/{selected_implementation}/direct_call/generated_specification.tla", "w", encoding="utf-8") as f:
     f.write(generated_specification)
 print("STEP 2 OUTPUT:\n", generated_specification)
 
@@ -46,6 +46,6 @@ generated_cfg = client.models.generate_content(
 )
 generated_cfg = generated_cfg.text
 
-with open(f"outputs/{selected_implementation}/generated_cfg.cfg", "w", encoding="utf-8") as f:
+with open(f"generated_specs/{selected_implementation}/direct_call/generated_cfg.cfg", "w", encoding="utf-8") as f:
     f.write(generated_cfg)
 print("STEP 3 OUTPUT:\n", generated_cfg)
