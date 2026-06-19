@@ -8,13 +8,13 @@ This repository contains the experiments and helper scripts for generating TLA+ 
 
 **Prerequisites**
 
-- Python 3.10+ (or your project's required Python). Use `zsh` for the example commands below.
+- Python 3.10+. Use `zsh` for the example commands below.
 - Java + `tla2tools.jar` for TLC (the SysMoBench CLI checks for these and can download them via its setup helper).
 - A virtual environment is recommended.
 
 **1) Setup (virtualenv & dependencies)**
 
-This workspace expects two repositories to be present side-by-side. Clone both into the same parent directory before following the setup steps below:
+This workspace expects two repositories to be present side-by-side. Clone both into the same parent directory:
 
 ```
 git clone https://github.com/RSA-Project2026/project
@@ -45,7 +45,7 @@ pip install -e .
 sysmobench-setup
 ```
 
-Set API keys (if you use Gemini / other LLMs). For the provided Gemini-based scripts, create a `.env` in `project/` with e.g.:
+Set API keys (if you use Gemini / other LLMs). For the provided Gemini-based scripts, create a `.env` in `project/` with:
 
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
@@ -63,7 +63,7 @@ The functionality of each implementation is as follows:
 - **Functional**: Builds on the practical implementation with a heartbeating mechanism to detect leadership failure and efficiently initiate recovery.
 
 To run the experiments in the most fair and independent manner, we have slightly modified the implementations to remove an inheritance between them. As such, each implementation is completely independent of the others.
-To verify that these modifications have not modified the implementations, you can run the following unit tests in `project/test/`, once again derived from https://github.com/cocagne/paxos.
+To verify that these modifications have not modified protocol functionality, you can run the following unit tests in `project/test/`, once again derived from https://github.com/cocagne/paxos.
 To run all tests:
 
 ```
@@ -123,6 +123,7 @@ python fix_gemini.py
 ```
 
 `fix_gemini.py` will write the repaired spec and cfg into `generated_specs/paxos_<impl>/after_fixes/`.
+
 4. Re-run the SysMoBench checks on the `after_fixes` spec (repeat steps in (2)), and iterate until satisfied.
 
 Notes:
