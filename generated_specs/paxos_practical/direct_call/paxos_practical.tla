@@ -27,7 +27,6 @@ vars == <<proposal_id, proposed_value, promises_rcvd, next_proposal_number, lead
 None == "None"
 QuorumSize == QUORUM_SIZE
 
-\* Helper operators for lexicographical comparison of Proposal IDs: [number: Nat, uid: Nodes]
 ID_GT(id1, id2) ==
   IF id1 = None THEN FALSE
   ELSE IF id2 = None THEN TRUE
@@ -37,7 +36,6 @@ ID_GEQ(id1, id2) ==
   IF id1 = id2 THEN TRUE
   ELSE ID_GT(id1, id2)
 
-\* Keep proposer's next_proposal_number up to date
 UpdatedNPN(n, from_uid, pid) ==
   IF from_uid /= n /\ ID_GEQ(pid, [number |-> next_proposal_number[n], uid |-> n])
   THEN pid.number + 1
@@ -101,23 +99,19 @@ RecvPromise(n, msg) ==
         new_promises == promises_rcvd[n] \cup {msg.from}
         updates_accepted == ID_GT(msg.prev_accepted_id, last_accepted_id[n])
         new_last_accepted_id == IF updates_accepted THEN msg.prev_accepted_id ELSE last_accepted_id[n]
-        new_proposed_value == IF updates_accepted /\ msg.prev_accepted_value /= None 
-                              THEN msg.prev_accepted_value 
-                              ELSE proposed_value[n]
         became_leader == (Cardinality(new_promises) = QuorumSize)
         new_leader == became_leader
-        send_accept == became_leader /\ new_proposed_value /= None
+        send_accept == became_leader /\ proposed_value[n] /= None
         new_msg == IF send_accept 
-                   THEN messages \cup {[type |-> "Accept", from |-> n, proposal_id |-> proposal_id[n], value |-> new_proposed_value]}
+                   THEN messages \cup {[type |-> "Accept", from |-> n, proposal_id |-> proposal_id[n], value |-> proposed_value[n]]}
                    ELSE messages
       IN
         /\ next_proposal_number' = [next_proposal_number EXCEPT ![n] = new_npn]
         /\ promises_rcvd' = [promises_rcvd EXCEPT ![n] = new_promises]
         /\ last_accepted_id' = [last_accepted_id EXCEPT ![n] = new_last_accepted_id]
-        /\ proposed_value' = [proposed_value EXCEPT ![n] = new_proposed_value]
         /\ leader' = [leader EXCEPT ![n] = new_leader]
         /\ messages' = new_msg
-        /\ UNCHANGED <<proposal_id, promised_id, accepted_id, accepted_value,
+        /\ UNCHANGED <<proposal_id, proposed_value, promised_id, accepted_id, accepted_value,
                        pending_promise, pending_accepted, learner_proposals, learner_last_pn, final_value>>
 
 \* Proposer.recv_prepare_nack
@@ -130,7 +124,7 @@ RecvPrepareNack(n, msg) ==
                  promised_id, accepted_id, accepted_value, pending_promise,
                  pending_accepted, learner_proposals, learner_last_pn, final_value, messages>>
 
-\* Acceptor.recv_prepare / Node.recv_prepare (combined atomic step)
+\* Acceptor.recv_prepare
 RecvPrepare(n, msg) ==
   /\ msg \in messages
   /\ msg.type = "Prepare"
@@ -265,7 +259,6 @@ RecvAccepted(n, msg) ==
            LET
              existing_record_set == {r \in learner_proposals[n] : r.id = msg.proposal_id}
            IN
-             \* Enforce single-value-per-proposal assertion
              /\ \A r \in existing_record_set : r.value = msg.value
              /\ LET
                   existing_record == 
@@ -284,7 +277,7 @@ RecvAccepted(n, msg) ==
                                  promised_id, accepted_id, accepted_value, pending_promise,
                                  pending_accepted, messages>>
 
-\* Acceptor.recover (Crash recovery: transient state reset)
+\* Acceptor.recover
 CrashAndRecover(n) ==
   /\ (pending_promise[n] /= None \/ pending_accepted[n] /= None \/ leader[n] = TRUE \/ promises_rcvd[n] /= {})
   /\ pending_promise' = [pending_promise EXCEPT ![n] = None]
